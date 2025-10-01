@@ -7,13 +7,20 @@ public class Main {
     static class Timer { long t0; void start(){ t0 = System.nanoTime(); } long stop(){ return System.nanoTime() - t0; } }
     static class Depth { int cur, max; void enter(){ if (++cur > max) max = cur; } void exit(){ cur--; } void reset(){ cur = max = 0; } }
     static final Depth MS = new Depth(), QS = new Depth(), CP = new Depth();
+    static long CMP = 0, MOV = 0, ALLOC = 0;
+    static void resetAll() { CMP = MOV = ALLOC = 0; MS.reset(); QS.reset(); CP.reset(); }
 
     // ------------ Общий insertion sort для диапазона ------------
     private static void insertionRange(int[] a, int l, int r) {
         for (int i = l + 1; i <= r; i++) {
             int x = a[i], j = i - 1;
-            while (j >= l && a[j] > x) { a[j + 1] = a[j]; j--; }
-            a[j + 1] = x;
+            while (j >= l) {
+                CMP++; // сравнение a[j] > x
+                if (a[j] <= x) break;
+                a[j + 1] = a[j]; MOV++; // перенос
+                j--;
+            }
+            a[j + 1] = x; MOV++;           // финальная вставка тоже запись
         }
     }
 
@@ -24,6 +31,7 @@ public class Main {
         public static void sort(int[] a) {
             if (a == null || a.length < 2) return;
             int[] buf = new int[a.length];
+            ALLOC++; // буфер для mergesort
             sort(a, 0, a.length - 1, buf);
         }
         private static void sort(int[] a, int l, int r, int[] buf) {
@@ -33,11 +41,17 @@ public class Main {
                 int m = (l + r) >>> 1;
                 sort(a, l, m, buf);
                 sort(a, m + 1, r, buf);
-                if (a[m] <= a[m + 1]) return; // уже отсортированы
+                CMP++;                          // сравнение границы
+                if (a[m] <= a[m + 1]) return;   // уже отсортированы
                 System.arraycopy(a, l, buf, l, r - l + 1);
+                MOV += (r - l + 1);             // опционально: посчитать копирование в буфер
                 int i = l, j = m + 1, k = l;
-                while (i <= m && j <= r) a[k++] = (buf[i] <= buf[j]) ? buf[i++] : buf[j++];
-                while (i <= m) a[k++] = buf[i++];
+                while (i <= m && j <= r) {
+                    CMP++; // сравнение buf[i] <= buf[j]
+                    if (buf[i] <= buf[j]) { a[k++] = buf[i++]; MOV++; }
+                    else { a[k++] = buf[j++]; MOV++; }
+                }
+                while (i <= m) { a[k++] = buf[i++]; MOV++; }
                 // правый хвост уже на месте
             } finally {
                 MS.exit();
@@ -69,12 +83,16 @@ public class Main {
         private static int partitionRandom(int[] a, int l, int r, Random rnd) {
             int pivotIdx = l + rnd.nextInt(r - l + 1);
             swap(a, pivotIdx, r);
+            MOV += 3;
             return partition(a, l, r);
         }
         private static int partition(int[] a, int l, int r) {
             int pivot = a[r], i = l;
-            for (int j = l; j < r; j++) if (a[j] <= pivot) { swap(a, i, j); i++; }
-            swap(a, i, r);
+            for (int j = l; j < r; j++) {
+                CMP++; // сравнение с pivot
+                if (a[j] <= pivot) { swap(a, i, j); MOV += 3; i++; }
+            }
+            swap(a, i, r); MOV += 3;
             return i;
         }
         private static void swap(int[] a, int i, int j) { int t = a[i]; a[i] = a[j]; a[j] = t; }
@@ -104,7 +122,7 @@ public class Main {
                 int gl = l + i * 5, gr = Math.min(gl + 4, r);
                 insertionRange(a, gl, gr);
                 int medianIdx = gl + (gr - gl) / 2;
-                swap(a, l + i, medianIdx);
+                swap(a, l + i, medianIdx); MOV += 3;
             }
             int mid = (groups - 1) / 2;
             return selectIndex(a, l, l + groups - 1, mid);
@@ -112,7 +130,7 @@ public class Main {
         private static int selectIndex(int[] a, int l, int r, int k) {
             while (true) {
                 if (l == r) return l;
-                int p = partition(a, l, r, l + (r - l) / 2);
+                int p = partition(a, l, r, medianOfMedians(a, l, r)); // MoM5-пивот
                 int rank = p - l;
                 if (k == rank) return p;
                 else if (k < rank) r = p - 1;
@@ -123,22 +141,32 @@ public class Main {
             int pivot = a[pivotIdx];
             swap(a, pivotIdx, r);
             int i = l;
-            for (int j = l; j < r; j++) if (a[j] < pivot) { swap(a, i, j); i++; }
-            swap(a, i, r);
+            for (int j = l; j < r; j++) {
+                CMP++; // a[j] < pivot
+                if (a[j] < pivot) { swap(a, i, j); MOV += 3; i++; }
+            }
+            swap(a, i, r); MOV += 3;
             return i;
         }
         private static void swap(int[] a, int i, int j) { int t = a[i]; a[i] = a[j]; a[j] = t; }
     }
 
     // ------------ Closest Pair of Points (O(n log n)) ------------
-    record Point(double x, double y) {}
+    static class Point {
+        final double x, y;
+        Point(double x, double y) { this.x = x; this.y = y; }
+        double x() { return x; }
+        double y() { return y; }
+    }
     static class ClosestPair {
         public static double closest(Point[] pts) {
             if (pts == null || pts.length < 2) return Double.POSITIVE_INFINITY;
             Point[] px = pts.clone(), py = pts.clone();
+            ALLOC += 2; // два массива-клона
             Arrays.sort(px, Comparator.comparingDouble(Point::x));
             Arrays.sort(py, Comparator.comparingDouble(Point::y));
             Point[] buf = new Point[pts.length];
+            ALLOC++; // буфер для py
             return solve(px, py, buf, 0, pts.length); // [l, r)
         }
         private static double solve(Point[] px, Point[] py, Point[] buf, int l, int r) {
@@ -168,8 +196,10 @@ public class Main {
                 int sc = 0;
                 for (int i = l; i < r; i++) if (Math.abs(py[i].x() - midX) < d) buf[sc++] = py[i];
                 for (int i = 0; i < sc; i++)
-                    for (int j = i + 1; j < sc && (buf[j].y() - buf[i].y()) < d; j++)
-                        d = Math.min(d, dist(buf[i], buf[j]));
+                    for (int j = i + 1; j < sc && (buf[j].y() - buf[i].y()) < d; j++) {
+                        double dij = dist(buf[i], buf[j]); CMP++; // сравнение dij < d
+                        if (dij < d) d = dij;
+                    }
                 return d;
             } finally {
                 CP.exit();
@@ -196,39 +226,44 @@ public class Main {
     // ------------ Bench в CSV ------------
     private static void bench() throws Exception {
         List<String[]> rows = new ArrayList<>();
-        rows.add(new String[]{"algo","n","time_ns","max_depth"});
+        rows.add(new String[]{"algo","n","time_ns","max_depth","cmp","mov","alloc"});
 
         // MergeSort
         for (int k = 10; k <= 20; k++) {
-            int n = 1 << k; MS.reset();
+            int n = 1 << k; resetAll();
             int[] a = ThreadLocalRandom.current().ints(n).toArray();
             Timer t = new Timer(); t.start(); MergeSort.sort(a); long ns = t.stop();
-            rows.add(new String[]{"mergesort", String.valueOf(n), String.valueOf(ns), String.valueOf(MS.max)});
+            rows.add(new String[]{"mergesort", String.valueOf(n), String.valueOf(ns),
+                    String.valueOf(MS.max), String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
         }
         // QuickSort
         for (int k = 10; k <= 20; k++) {
-            int n = 1 << k; QS.reset();
+            int n = 1 << k; resetAll();
             int[] a = ThreadLocalRandom.current().ints(n).toArray();
             Timer t = new Timer(); t.start(); QuickSort.sort(a, 42); long ns = t.stop();
-            rows.add(new String[]{"quicksort", String.valueOf(n), String.valueOf(ns), String.valueOf(QS.max)});
+            rows.add(new String[]{"quicksort", String.valueOf(n), String.valueOf(ns),
+                    String.valueOf(QS.max), String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
         }
         // Select (k = n/2)
         for (int k = 14; k <= 21; k++) {
             int n = 1 << k;
+            resetAll();
             int[] a = ThreadLocalRandom.current().ints(n).toArray();
             Timer t = new Timer(); t.start(); int v = SelectMoM5.select(a, n/2); long ns = t.stop();
             if (v == Integer.MIN_VALUE) System.out.print("");
-            rows.add(new String[]{"select_mom5", String.valueOf(n), String.valueOf(ns), "0"});
+            rows.add(new String[]{"select_mom5", String.valueOf(n), String.valueOf(ns), "0",
+                    String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
         }
         // Closest Pair
         for (int k = 10; k <= 17; k++) {
-            int n = 1 << k; CP.reset();
+            int n = 1 << k; resetAll();
             Random rnd = new Random(7);
             Point[] pts = new Point[n];
             for (int i = 0; i < n; i++) pts[i] = new Point(rnd.nextDouble(), rnd.nextDouble());
             Timer t = new Timer(); t.start(); double d = ClosestPair.closest(pts); long ns = t.stop();
             if (d < 0) System.out.print("");
-            rows.add(new String[]{"closest_pair", String.valueOf(n), String.valueOf(ns), String.valueOf(CP.max)});
+            rows.add(new String[]{"closest_pair", String.valueOf(n), String.valueOf(ns), String.valueOf(CP.max),
+                    String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
         }
         try (var w = java.nio.file.Files.newBufferedWriter(java.nio.file.Paths.get("bench.csv"))) {
             for (var r : rows) { w.write(String.join(",", r)); w.newLine(); }
