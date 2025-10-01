@@ -27,7 +27,7 @@ public class Main {
     }
 
     // ------------ MergeSort (буфер + cutoff) ------------
-    static class MergeSort {
+    public static class MergeSort {
         private static final int CUTOFF = 24;
 
         public static void sort(int[] a) {
@@ -62,7 +62,7 @@ public class Main {
     }
 
     // ------------ QuickSort (рандом pivot, рекурс в меньшую часть) ------------
-    static class QuickSort {
+    public static class QuickSort {
         public static void sort(int[] a, long seed) {
             if (a == null || a.length < 2) return;
             quicksort(a, 0, a.length - 1, new Random(seed), 1);
@@ -101,7 +101,7 @@ public class Main {
     }
 
     // ------------ Deterministic Select (Median of Medians, 5) ------------
-    static class SelectMoM5 {
+    public static class SelectMoM5 {
         public static int select(int[] a, int k) {
             if (a == null || a.length == 0) throw new IllegalArgumentException("empty");
             if (k < 0 || k >= a.length) throw new IllegalArgumentException("k out of range");
@@ -154,13 +154,13 @@ public class Main {
     }
 
     // ------------ Closest Pair of Points (O(n log n)) ------------
-    static class Point {
+    public static class Point {
         final double x, y;
         Point(double x, double y) { this.x = x; this.y = y; }
         double x() { return x; }
         double y() { return y; }
     }
-    static class ClosestPair {
+    public static class ClosestPair {
         public static double closest(Point[] pts) {
             if (pts == null || pts.length < 2) return Double.POSITIVE_INFINITY;
             Point[] px = pts.clone(), py = pts.clone();
