@@ -1,3 +1,5 @@
+package com.university.algorithms;
+
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -57,7 +59,7 @@ public class Main {
                 MS.exit();
             }
         }
-    } // <-- ВАЖНО: класс MergeSort здесь закрыт
+    }
 
     // ------------ QuickSort (рандом pivot, рекурс в меньшую часть) ------------
     static class QuickSort {
@@ -273,33 +275,114 @@ public class Main {
 
     // ------------ Demo/entrypoint ------------
     public static void main(String[] args) throws Exception {
-        if (args.length > 0 && args[0].equalsIgnoreCase("bench")) { bench(); return; }
+		if (args.length > 0 && args[0].equalsIgnoreCase("bench")) { bench(); return; }
 
-        int n = 1 << 16;
-        int[] arr1 = ThreadLocalRandom.current().ints(n, -1_000_000, 1_000_000).toArray();
-        int[] arr2 = arr1.clone();
+		// Простые флаги: --algo, --n, --trials, --seed, --csv
+		Map<String, String> flags = parseFlags(args);
+		String algo = flags.getOrDefault("algo", "demo").toLowerCase(Locale.ROOT);
+		int n = Integer.parseInt(flags.getOrDefault("n", String.valueOf(1 << 16)));
+		int trials = Integer.parseInt(flags.getOrDefault("trials", "1"));
+		long seed = Long.parseLong(flags.getOrDefault("seed", "42"));
+		String csvPath = flags.get("csv");
 
-        MergeSort.sort(arr1);
-        System.out.println("MergeSort ok? " + isSorted(arr1));
+		if (algo.equals("demo")) {
+			// Старый демо-режим
+			int[] arr1 = ThreadLocalRandom.current().ints(n, -1_000_000, 1_000_000).toArray();
+			int[] arr2 = arr1.clone();
+			MergeSort.sort(arr1);
+			System.out.println("MergeSort ok? " + isSorted(arr1));
+			QuickSort.sort(arr2, seed);
+			System.out.println("QuickSort ok? " + isSorted(arr2));
+			int[] arr3 = arr2.clone();
+			int k = n / 2;
+			int kth = SelectMoM5.select(arr3, k);
+			System.out.println("Select (k = " + k + ") = " + kth);
+			int m = Math.min(1 << 12, Math.max(4, n >>> 4));
+			Point[] pts = new Point[m];
+			Random rnd = new Random(7);
+			for (int i = 0; i < m; i++) pts[i] = new Point(rnd.nextDouble(), rnd.nextDouble());
+			double d = ClosestPair.closest(pts);
+			System.out.println("Closest pair distance = " + d);
+			return;
+		}
 
-        QuickSort.sort(arr2, 42L);
-        System.out.println("QuickSort ok? " + isSorted(arr2));
+		List<String[]> rows = new ArrayList<>();
+		rows.add(new String[]{"algo","n","time_ns","max_depth","cmp","mov","alloc"});
+		Random rnd = new Random(seed);
+		for (int t = 0; t < trials; t++) {
+			resetAll();
+			Timer timer = new Timer();
+			long timeNs;
+			switch (algo) {
+				case "mergesort": {
+					int[] a = rnd.ints(n).toArray();
+					timer.start();
+					MergeSort.sort(a);
+					timeNs = timer.stop();
+					rows.add(new String[]{"mergesort", String.valueOf(n), String.valueOf(timeNs), String.valueOf(MS.max), String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
+					break;
+				}
+				case "quicksort": {
+					int[] a = rnd.ints(n).toArray();
+					timer.start();
+					QuickSort.sort(a, rnd.nextLong());
+					timeNs = timer.stop();
+					rows.add(new String[]{"quicksort", String.valueOf(n), String.valueOf(timeNs), String.valueOf(QS.max), String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
+					break;
+				}
+				case "select": {
+					int[] a = rnd.ints(n).toArray();
+					int k = n / 2;
+					timer.start();
+					int v = SelectMoM5.select(a, k);
+					timeNs = timer.stop();
+					if (v == Integer.MIN_VALUE) System.out.print("");
+					rows.add(new String[]{"select_mom5", String.valueOf(n), String.valueOf(timeNs), "0", String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
+					break;
+				}
+				case "closest": {
+					Point[] pts = new Point[n];
+					for (int i = 0; i < n; i++) pts[i] = new Point(rnd.nextDouble(), rnd.nextDouble());
+					timer.start();
+					double d = ClosestPair.closest(pts);
+					timeNs = timer.stop();
+					if (d < 0) System.out.print("");
+					rows.add(new String[]{"closest_pair", String.valueOf(n), String.valueOf(timeNs), String.valueOf(CP.max), String.valueOf(CMP), String.valueOf(MOV), String.valueOf(ALLOC)});
+					break;
+				}
+				default:
+					throw new IllegalArgumentException("Unknown --algo: " + algo);
+			}
+		}
 
-        int[] arr3 = arr2.clone();
-        int k = n / 2;
-        int kth = SelectMoM5.select(arr3, k);
-        System.out.println("Select (k = " + k + ") = " + kth);
-
-        int m = 1 << 12;
-        Point[] pts = new Point[m];
-        Random rnd = new Random(7);
-        for (int i = 0; i < m; i++) pts[i] = new Point(rnd.nextDouble(), rnd.nextDouble());
-        double d = ClosestPair.closest(pts);
-        System.out.println("Closest pair distance = " + d);
+		if (csvPath != null && !csvPath.isEmpty()) {
+			try (var w = java.nio.file.Files.newBufferedWriter(java.nio.file.Paths.get(csvPath))) {
+				for (var r : rows) { w.write(String.join(",", r)); w.newLine(); }
+			}
+			System.out.println("Wrote " + csvPath + " (" + (rows.size()-1) + " rows)");
+		} else {
+			for (var r : rows) System.out.println(String.join(",", r));
+		}
     }
+
+	private static Map<String, String> parseFlags(String[] args) {
+		Map<String, String> map = new HashMap<>();
+		for (int i = 0; i < args.length; i++) {
+			String s = args[i];
+			if (s.startsWith("--")) {
+				String key = s.substring(2);
+				String val = "true";
+				if (i + 1 < args.length && !args[i + 1].startsWith("--")) { val = args[++i]; }
+				map.put(key, val);
+			}
+		}
+		return map;
+	}
 
     private static boolean isSorted(int[] a) {
         for (int i = 1; i < a.length; i++) if (a[i - 1] > a[i]) return false;
         return true;
     }
 }
+
+
